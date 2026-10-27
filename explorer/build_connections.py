@@ -1,4 +1,3 @@
-from neuron_compat import MODEL, checkpoint
 """Direct-path connections for every neuron in every layer, for the explorer's details tab.
 
 For layers i < j, P[B, A] = (W_gate_j[B] . v_A) * (W_up_j[B] . v_A) with v_A = (1 + w_j) * W_down_i[:, A], w_j the
@@ -11,6 +10,7 @@ across all layers, with sign(P).
 Writes explorer/cache/connections.npz: {down,up}_layer [L, N, k] int8, {down,up}_n int16, {down,up}_z float16,
 {down,up}_sign int8.
 """
+from neuron_compat import MODEL, checkpoint
 import argparse
 import json
 import os

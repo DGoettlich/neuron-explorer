@@ -27,7 +27,7 @@ from neuron_compat import MODEL  # noqa: E402
 RUNS, STATS = os.path.join(ROOT, "runs"), os.path.join(ROOT, "stats")
 # the agent's neuronary.org tools (agent_mcp.py) read the person's token from here when set
 NEURONARY_ENV = {k: os.environ[k] for k in ("NEURONARY_TOKEN", "NEURONARY_API") if os.environ.get(k)}
-NAMES = os.path.join(ROOT, "explorer", "names.json")
+NAMES = os.path.join(CACHE, "names.json")
 PORT = int(os.environ.get("PORT", 8791))
 _cfg = AutoConfig.from_pretrained(MODEL).get_text_config()
 ARCH = {"n_layers": _cfg.num_hidden_layers, "hidden": _cfg.hidden_size, "inter": _cfg.intermediate_size,
@@ -72,6 +72,8 @@ def layer_runs():
     best = {}
     for meta_path in glob.glob(os.path.join(RUNS, "*.meta.json")):
         meta = json.load(open(meta_path))
+        if meta.get("model") != MODEL:
+            continue
         if meta.get("design_name", "main") == "calib":
             continue
         jsonl = meta_path.replace(".meta.json", ".jsonl")

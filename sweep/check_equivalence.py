@@ -1,4 +1,3 @@
-from neuron_compat import MODEL, device, load_model, language_model
 """GPU check of the two equivalences the steering sweep rests on. Run once on a new box before a full sweep.
 
 1. Steering: the fork adding v * W_down[:, n] at mlp_out gives the same greedy rollout as HF adding v to neuron n's
@@ -9,6 +8,7 @@ from neuron_compat import MODEL, device, load_model, language_model
 
     uv run python sweep/check_equivalence.py --stats stats/q35-4b_L22.npz --neurons 2742,17,5000
 """
+from neuron_compat import MODEL, device, load_model, language_model
 import argparse
 import os
 import shutil
@@ -41,6 +41,7 @@ def main():
     ap.add_argument("--capture-gen", type=int, default=8)
     ap.add_argument("--capture-root", default="captures-check")
     a = ap.parse_args()
+    a.seed = 0
 
     st = np.load(a.stats)
     layer, abs_max, w_down = int(st["layer"]), st["abs_max"], st["w_down"]

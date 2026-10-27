@@ -1,4 +1,3 @@
-from neuron_compat import MODEL, device, load_model, language_model
 """Per-neuron activation ranges for MLP layers of a Qwen3.5 model, plus their down-projection columns.
 
 A neuron's activation is silu(gate) * up, the input to down_proj. Positive activations come from two sign regimes
@@ -15,6 +14,7 @@ Writes stats/q35-4b_L22.npz with
     w_down           down_proj columns, one row per neuron                                [I, H] float16
     resid_norm_q10_50_90   quantiles of the per-token residual norm leaving the layer (scale for push sizes)
 """
+from neuron_compat import MODEL, device, load_model, language_model
 import argparse
 import itertools
 import os
@@ -76,9 +76,10 @@ def main():
     ap.add_argument("--tokens", type=int, default=2_000_000)
     ap.add_argument("--seq-len", type=int, default=1024)
     ap.add_argument("--batch", type=int, default=16)
-    ap.add_argument("--seed", type=int, default=0)
-    ap.add_argument("--out", default="stats/q35-4b")
+    ap.add_argument("--out", default=None)
     a = ap.parse_args()
+    a.seed = 0
+    a.out = a.out or f"stats/{a.model.split('/')[-1]}"
     layers = [int(x) for x in a.layers.split(",")]
 
     tok = AutoTokenizer.from_pretrained(a.model)

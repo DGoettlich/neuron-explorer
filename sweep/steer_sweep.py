@@ -33,6 +33,8 @@ import json
 import os
 import time
 
+from neuron_compat import MODEL, device
+
 import numpy as np
 from transformers import AutoConfig, AutoTokenizer
 from vllm import LLM, SamplingParams
@@ -86,7 +88,7 @@ def rollout_record(out, job, layer, top_k):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--model", default="Qwen/Qwen3.5-4B")
+    ap.add_argument("--model", default=MODEL)
     ap.add_argument("--stats", required=True, help="npz from neuron_stats.py for the layer to steer")
     ap.add_argument("--neurons", default="all", help='"all", "random:128", "2742", "0-99", or "1,5,9-12"')
     ap.add_argument("--design", default="main", choices=sorted(DESIGNS))
@@ -102,13 +104,13 @@ def main():
     ap.add_argument("--capture-layout", default="packed", choices=["packed", "sharded"], help="packed publishes each "
                     "rollout when it finishes; sharded publishes only when a shard seals")
     ap.add_argument("--random-controls", type=int, default=256, help="random-direction controls spread through the run")
-    ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--chunk", type=int, default=4000, help="requests per generate call (one jsonl flush each)")
     ap.add_argument("--max-configs", type=int, default=512, help="distinct steering configs resident at once")
     ap.add_argument("--max-num-seqs", type=int, default=256, help="concurrent sequences; capped by the per-sequence "
                     "linear-attention state memory (about 350 on a 24 GB card at --gpu-mem 0.85)")
     ap.add_argument("--gpu-mem", type=float, default=0.85)
     a = ap.parse_args()
+    a.seed = 0
 
     st = np.load(a.stats)
     layer, abs_max, w_down = int(st["layer"]), st["abs_max"], st["w_down"]
@@ -166,10 +168,16 @@ def main():
     if not jobs:
         return
 
+    engine = {}
+    if device() == "mps":
+        engine = dict(worker_cls="neuron_compat.worker.BoundedMPSWorker",
+                      kv_cache_memory_bytes=128 * 1024**2)
+    else:
+        engine = dict(max_num_seqs=a.max_num_seqs)
     llm = LLM(
         model=a.model, dtype="bfloat16", enable_steering=True, max_steering_configs=a.max_configs,
-        max_num_seqs=a.max_num_seqs, max_model_len=max(map(len, prompt_ids.values())) + a.max_tokens + 16,
-        gpu_memory_utilization=a.gpu_mem, limit_mm_per_prompt={"image": 0, "video": 0}, shutdown_timeout=120,
+        **engine, max_model_len=max(map(len, prompt_ids.values())) + a.max_tokens + 16,
+        gpu_memory_utilization=0.25 if device() == "mps" else a.gpu_mem, shutdown_timeout=120,
         capture_consumers=[{"name": "filesystem", "params": {"root": a.capture_root}}] if cap_layers else None,
     )
 

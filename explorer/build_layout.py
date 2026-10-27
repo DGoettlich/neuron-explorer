@@ -1,4 +1,3 @@
-from neuron_compat import MODEL, checkpoint
 """Seriated sheet layouts: places each layer's neurons on its 96x96 grid so that neurons with similar weights sit
 together. Embeds each neuron by its down_proj column ("writes": the direction it adds to the residual stream) or its
 gate and up rows ("reads"), cosine-normalised, PCA to 50 dims, UMAP to 2D, then snaps to the grid: sort by y into
@@ -8,6 +7,7 @@ rows of 96, then by x within each row.
 
 Writes explorer/cache/layout_<kind>.npz: cell[L, N] (int16, row * 96 + col for neuron n of layer L).
 """
+from neuron_compat import MODEL, checkpoint
 import argparse
 import json
 import os

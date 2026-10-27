@@ -1,4 +1,3 @@
-from neuron_compat import MODEL, device, load_model, language_model
 """Downstream state of every rollout in a sweep run: the MLP input (post-attention-norm hidden state, the vector the
 gate and up projections read) at the last prompt token, at the run's capture layers, with the rollout's steering push
 applied at every prompt position. One prefill per rollout, batched by prompt.
@@ -8,6 +7,7 @@ applied at every prompt position. One prefill per rollout, batched by prompt.
 Writes captures/<run>.mlp_in.npy, float16 [rows, capture layers, hidden], row i = line i of the jsonl, and
 captures/<run>.mlp_in.json with the capture layers. Neuron activations follow as silu(x @ W_gate.T) * (x @ W_up.T).
 """
+from neuron_compat import MODEL, device, load_model, language_model
 import argparse
 import json
 import os
@@ -30,6 +30,7 @@ def main():
     ap.add_argument("--seed", type=int, default=0, help="the sweep's --seed (random-control directions)")
     ap.add_argument("--out-dir", default="captures")
     a = ap.parse_args()
+    a.seed = 0
     os.makedirs(a.out_dir, exist_ok=True)
 
     tok = AutoTokenizer.from_pretrained(a.model)

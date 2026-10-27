@@ -3,6 +3,13 @@ import json
 import os
 from pathlib import Path
 
+import sys
+
+if sys.platform == "darwin":
+    os.environ["PYTORCH_MPS_HIGH_WATERMARK_RATIO"] = "0.9"
+    os.environ["PYTORCH_MPS_LOW_WATERMARK_RATIO"] = "0.8"
+    os.environ.setdefault("VLLM_METAL_BACKEND", "mps")
+
 import torch
 from safetensors import safe_open
 from transformers import AutoConfig, AutoModelForCausalLM, AutoModelForImageTextToText
@@ -15,6 +22,11 @@ def device():
 
 
 def load_model(name):
+    if device() == "mps":
+        import psutil
+        if psutil.virtual_memory().available < 3.5 * 1024**3:
+            raise RuntimeError("Not enough free memory for a local model plus system headroom")
+        torch.mps.set_per_process_memory_fraction(min(0.9, 3 * 1024**3 / torch.mps.recommended_max_memory()))
     config = AutoConfig.from_pretrained(name)
     cls = AutoModelForCausalLM if config.model_type == "qwen3" else AutoModelForImageTextToText
     model = cls.from_pretrained(name, dtype=torch.bfloat16).to(device()).eval()

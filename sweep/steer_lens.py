@@ -1,4 +1,3 @@
-from neuron_compat import MODEL, device, load_model, language_model
 """Steer lens: what pushing each neuron does to the model's next-token prediction, through every layer after it.
 
 For each neuron and sign, adds ±dose x (median residual norm / ||W_down[:, n]||) to the neuron at every position of a
@@ -11,6 +10,7 @@ divergence from the unsteered prediction.
 Writes stats/steer_lens_L{l}.npz per layer: up_tok[N, 12], down_tok[N, 12] (token ids for the + push and - push),
 up_kl[N], down_kl[N].
 """
+from neuron_compat import MODEL, device, load_model, language_model
 import argparse
 import os
 import time
@@ -32,6 +32,7 @@ def main():
     ap.add_argument("--k", type=int, default=12)
     ap.add_argument("--out", default="stats/steer_lens")
     a = ap.parse_args()
+    a.seed = 0
     lo, _, hi = a.layers.partition("-")
     layers = list(range(int(lo), int(hi or lo) + 1))
 
