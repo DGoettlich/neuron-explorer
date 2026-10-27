@@ -1,3 +1,4 @@
+from neuron_compat import MODEL, device, load_model, language_model
 """Downstream state of every rollout in a sweep run: the MLP input (post-attention-norm hidden state, the vector the
 gate and up projections read) at the last prompt token, at the run's capture layers, with the rollout's steering push
 applied at every prompt position. One prefill per rollout, batched by prompt.
@@ -24,7 +25,7 @@ class Stop(Exception):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("runs", nargs="+")
-    ap.add_argument("--model", default="Qwen/Qwen3.5-4B")
+    ap.add_argument("--model", default=MODEL)
     ap.add_argument("--batch", type=int, default=256)
     ap.add_argument("--seed", type=int, default=0, help="the sweep's --seed (random-control directions)")
     ap.add_argument("--out-dir", default="captures")
@@ -32,8 +33,8 @@ def main():
     os.makedirs(a.out_dir, exist_ok=True)
 
     tok = AutoTokenizer.from_pretrained(a.model)
-    model = Qwen3_5ForConditionalGeneration.from_pretrained(a.model, dtype=torch.bfloat16, device_map="cuda").eval()
-    lm = model.model.language_model
+    model = load_model(a.model)[0]
+    lm = language_model(model)
     state = {"push_layer": None, "vec": None, "caps": {}, "last": None}
 
     def push_hook(i):
@@ -87,10 +88,10 @@ def main():
         for i, r in enumerate(rows):
             by_prompt.setdefault(r["prompt"], []).append(i)
         for p, idx in by_prompt.items():
-            ids = torch.tensor(meta["prompt_ids"][p], device="cuda")[None]
+            ids = torch.tensor(meta["prompt_ids"][p], device=device())[None]
             for s in range(0, len(idx), a.batch):
                 chunk = idx[s:s + a.batch]
-                state.update(push_layer=layer, vec=torch.tensor(np.stack([vec(rows[i]) for i in chunk]), device="cuda"),
+                state.update(push_layer=layer, vec=torch.tensor(np.stack([vec(rows[i]) for i in chunk]), device=device()),
                              caps={c: None for c in cap_layers}, last=max(cap_layers))
                 with torch.inference_mode():
                     try:

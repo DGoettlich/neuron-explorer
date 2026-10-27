@@ -1,3 +1,4 @@
+from neuron_compat import MODEL, checkpoint
 """Direct-path connections for every neuron in every layer, for the explorer's details tab.
 
 For layers i < j, P[B, A] = (W_gate_j[B] . v_A) * (W_up_j[B] . v_A) with v_A = (1 + w_j) * W_down_i[:, A], w_j the
@@ -21,15 +22,16 @@ from huggingface_hub import snapshot_download
 from safetensors import safe_open
 
 ap = argparse.ArgumentParser()
-ap.add_argument("--model", default="Qwen/Qwen3.5-4B")
+ap.add_argument("--model", default=MODEL)
 ap.add_argument("--k", type=int, default=24)
-ap.add_argument("--out", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "cache", "connections.npz"))
+ap.add_argument("--out")
 a = ap.parse_args()
+a.out = a.out or os.path.join(os.path.dirname(os.path.abspath(__file__)), "cache", a.model.replace("/", "--"), "connections.npz")
+os.makedirs(os.path.dirname(os.path.abspath(a.out)), exist_ok=True)
 dev = "cuda" if torch.cuda.is_available() else "mps"
 
 root = snapshot_download(a.model, allow_patterns=["*.safetensors", "*.json"])
-index = json.load(open(os.path.join(root, "model.safetensors.index.json")))["weight_map"]
-cfg = json.load(open(os.path.join(root, "config.json")))["text_config"]
+cfg, index, prefix = checkpoint(root)
 L, N, K = cfg["num_hidden_layers"], cfg["intermediate_size"], a.k
 
 
@@ -38,11 +40,11 @@ def tensor(name):
         return f.get_tensor(name).to(dev, torch.bfloat16)
 
 
-pre = "model.language_model.layers.{}."
+pre = prefix + ".{}."
 down = [tensor(pre.format(l) + "mlp.down_proj.weight") for l in range(L)]
 gate = [tensor(pre.format(l) + "mlp.gate_proj.weight") for l in range(L)]
 up = [tensor(pre.format(l) + "mlp.up_proj.weight") for l in range(L)]
-norm = [(1.0 + tensor(pre.format(l) + "post_attention_layernorm.weight").float()).to(torch.bfloat16) for l in range(L)]
+norm = [((0.0 if cfg["model_type"] == "qwen3" else 1.0) + tensor(pre.format(l) + "post_attention_layernorm.weight").float()).to(torch.bfloat16) for l in range(L)]
 
 # running top-k per neuron and side: score, source layer, source neuron, sign
 best = {s: (torch.full((L, N, K), -1e9, device=dev), torch.zeros((L, N, K), dtype=torch.int16, device=dev),

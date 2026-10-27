@@ -1,3 +1,4 @@
+from neuron_compat import MODEL, device, load_model, language_model
 """Steer lens: what pushing each neuron does to the model's next-token prediction, through every layer after it.
 
 For each neuron and sign, adds ±dose x (median residual norm / ||W_down[:, n]||) to the neuron at every position of a
@@ -24,7 +25,7 @@ PLAIN = ["I think the most important thing to remember is", "Today we are going 
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--model", default="Qwen/Qwen3.5-4B")
+    ap.add_argument("--model", default=MODEL)
     ap.add_argument("--layers", default="0-31")
     ap.add_argument("--dose", type=float, default=0.8)
     ap.add_argument("--neurons-per-batch", type=int, default=96)
@@ -35,15 +36,15 @@ def main():
     layers = list(range(int(lo), int(hi or lo) + 1))
 
     tok = AutoTokenizer.from_pretrained(a.model)
-    model = Qwen3_5ForConditionalGeneration.from_pretrained(a.model, dtype=torch.bfloat16, device_map="cuda").eval()
-    lm = model.model.language_model
+    model = load_model(a.model)[0]
+    lm = language_model(model)
     ctxs = [tok.apply_chat_template([{"role": "user", "content": c}], add_generation_prompt=True, enable_thinking=False,
                                     tokenize=True) for c in CHAT] + [tok(p).input_ids for p in PLAIN]
     ctxs = [list(c["input_ids"] if hasattr(c, "keys") else c) for c in ctxs]
     C, T = len(ctxs), max(map(len, ctxs))
     pad = tok.pad_token_id if tok.pad_token_id is not None else 0
-    ids = torch.tensor([[pad] * (T - len(c)) + c for c in ctxs], device="cuda")
-    mask = torch.tensor([[0] * (T - len(c)) + [1] * len(c) for c in ctxs], device="cuda")
+    ids = torch.tensor([[pad] * (T - len(c)) + c for c in ctxs], device=device())
+    mask = torch.tensor([[0] * (T - len(c)) + [1] * len(c) for c in ctxs], device=device())
     posn = (mask.cumsum(-1) - 1).clamp(min=0)
 
     push = {"layer": None, "cols": None, "vals": None}
@@ -81,7 +82,7 @@ def main():
         out = {k: [] for k in ("up_tok", "down_tok", "up_kl", "down_kl")}
         t0 = time.time()
         for s in range(0, N, B):
-            n = torch.arange(s, min(s + B, N), device="cuda")
+            n = torch.arange(s, min(s + B, N), device=device())
             b = len(n)
             for sign, key in ((1.0, "up"), (-1.0, "down")):
                 # rows: neuron-major, contexts repeated

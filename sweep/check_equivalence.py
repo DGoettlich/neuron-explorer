@@ -1,3 +1,4 @@
+from neuron_compat import MODEL, device, load_model, language_model
 """GPU check of the two equivalences the steering sweep rests on. Run once on a new box before a full sweep.
 
 1. Steering: the fork adding v * W_down[:, n] at mlp_out gives the same greedy rollout as HF adding v to neuron n's
@@ -31,7 +32,7 @@ def common_prefix(a, b):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--model", default="Qwen/Qwen3.5-4B")
+    ap.add_argument("--model", default=MODEL)
     ap.add_argument("--stats", required=True)
     ap.add_argument("--neurons", default="2742,17,5000")
     ap.add_argument("--doses", default="10,-2")
@@ -75,8 +76,8 @@ def main():
 
     # HF reference
     # the transformers class directly: importing vllm re-registers its own qwen3_5 config with AutoConfig
-    model = Qwen3_5ForConditionalGeneration.from_pretrained(a.model, dtype=torch.bfloat16, device_map="cuda").eval()
-    mlp = model.model.language_model.layers[layer].mlp
+    model = load_model(a.model)[0]
+    mlp = language_model(model).layers[layer].mlp
     push = {"n": None, "v": 0.0}
     seen = {}
 
@@ -89,7 +90,7 @@ def main():
             return (h,)
 
     mlp.down_proj.register_forward_pre_hook(hook)
-    x = torch.tensor([ids], device="cuda")
+    x = torch.tensor([ids], device=device())
     print(f"\nL{layer}, prompt {a.prompt!r}, {a.new} greedy tokens. agree = shared prefix length HF vs vLLM")
     for (n, d), vi in zip(cases, v_ids):
         push.update(n=n, v=float(d * abs_max[n]) if n is not None else 0.0)
@@ -111,13 +112,13 @@ def main():
         arr = (arr.astype(np.uint32) << 16).view(np.float32)
     print(f"\ncapture: requested all {plen} prompt positions; "
           f"got {e.positions}")
-    xs = torch.tensor(arr, device="cuda", dtype=torch.bfloat16)
+    xs = torch.tensor(arr, device=device(), dtype=torch.bfloat16)
     with torch.inference_mode():
         recomputed = (torch.nn.functional.silu(mlp.gate_proj(xs)) * mlp.up_proj(xs)).float()
-    full = torch.tensor([ids + v_ids[0]], device="cuda")
+    full = torch.tensor([ids + v_ids[0]], device=device())
     with torch.inference_mode():
-        model.model.language_model(input_ids=full, use_cache=False)
-    ref = seen["act"][0].float()[torch.tensor(e.positions, device="cuda").clamp(max=full.shape[1] - 1)]
+        language_model(model)(input_ids=full, use_cache=False)
+    ref = seen["act"][0].float()[torch.tensor(e.positions, device=device()).clamp(max=full.shape[1] - 1)]
     rel = (recomputed - ref).norm(dim=-1) / ref.norm(dim=-1)
     same_top = (recomputed.argmax(-1) == ref.argmax(-1)).float().mean()
     print(f"recomputed vs HF neuron activations: relative error per position {rel.cpu().numpy().round(4)}; "
