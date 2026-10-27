@@ -21,18 +21,19 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "sweep"))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from rank import compute_units  # noqa: E402
-from runtime import CACHE, NO_MODEL, Runtime  # noqa: E402
+from runtime import CACHE, NO_MODEL, Runtime
+from neuron_compat import MODEL  # noqa: E402
 
 RUNS, STATS = os.path.join(ROOT, "runs"), os.path.join(ROOT, "stats")
 # the agent's neuronary.org tools (agent_mcp.py) read the person's token from here when set
 NEURONARY_ENV = {k: os.environ[k] for k in ("NEURONARY_TOKEN", "NEURONARY_API") if os.environ.get(k)}
-NAMES = os.path.join(ROOT, "explorer", "names.json")
+NAMES = os.path.join(CACHE, "names.json")
 PORT = int(os.environ.get("PORT", 8791))
-_cfg = AutoConfig.from_pretrained("Qwen/Qwen3.5-4B").get_text_config()
+_cfg = AutoConfig.from_pretrained(MODEL).get_text_config()
 ARCH = {"n_layers": _cfg.num_hidden_layers, "hidden": _cfg.hidden_size, "inter": _cfg.intermediate_size,
-        "layer_types": list(_cfg.layer_types), "attn_heads": _cfg.num_attention_heads,
-        "kv_heads": _cfg.num_key_value_heads, "linear_k_heads": _cfg.linear_num_key_heads,
-        "linear_v_heads": _cfg.linear_num_value_heads}
+        "layer_types": list(getattr(_cfg, "layer_types", ["full_attention"] * _cfg.num_hidden_layers)), "attn_heads": _cfg.num_attention_heads,
+        "kv_heads": _cfg.num_key_value_heads, "linear_k_heads": getattr(_cfg, "linear_num_key_heads", 0),
+        "linear_v_heads": getattr(_cfg, "linear_num_value_heads", 0)}
 
 app = FastAPI()
 
@@ -71,6 +72,8 @@ def layer_runs():
     best = {}
     for meta_path in glob.glob(os.path.join(RUNS, "*.meta.json")):
         meta = json.load(open(meta_path))
+        if meta.get("model") != MODEL:
+            continue
         if meta.get("design_name", "main") == "calib":
             continue
         jsonl = meta_path.replace(".meta.json", ".jsonl")
@@ -149,7 +152,7 @@ def names():
 @app.get("/api/index")
 def index():
     runs = layer_runs()
-    return {"model": "Qwen/Qwen3.5-4B", "arch": ARCH,
+    return {"model": MODEL, "arch": ARCH,
             "layers": {str(l): os.path.basename(p) for l, p in sorted(runs.items())}, "status": rt.status}
 
 
@@ -824,7 +827,7 @@ def act_range(layer, n):
 @app.get("/api/agent/overview")
 def agent_overview():
     runs = layer_runs()
-    return {"model": "Qwen/Qwen3.5-4B", "arch": ARCH, "layers_with_sweeps": sorted(runs),
+    return {"model": MODEL, "arch": ARCH, "layers_with_sweeps": sorted(runs),
             "named_neurons": len(names()), "live_model": not NO_MODEL}
 
 

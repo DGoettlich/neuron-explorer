@@ -1,16 +1,46 @@
 [project]
 name = "neuron-explorer"
 version = "0.1.0"
-requires-python = ">=3.11"
+requires-python = ">=3.12,<3.13"
 dependencies = [
     "torch",
+    "psutil",
     "transformers",
     "safetensors",
     "numpy",
     "datasets",
     "accelerate",
-    "fastapi>=0.146.0",
+    "fastapi>=0.133,<0.137",
     "uvicorn>=0.54.0",
     "sentence-transformers>=6.1.0",
     "umap-learn>=0.5.12",
 ]
+
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["neuron_compat*"]
+
+[project.scripts]
+neuron-serve-mps = "neuron_compat.serve:main"
+
+[project.optional-dependencies]
+mps = [
+    "vllm; sys_platform == 'darwin' and platform_machine == 'arm64'",
+    "vllm-metal; sys_platform == 'darwin' and platform_machine == 'arm64'",
+]
+
+[tool.uv]
+# The upstream CPU build metadata includes Linux-only +cpu wheel variants.
+# Apple Silicon uses the same torch release without that local suffix.
+override-dependencies = [{ package = { name = "vllm" }, dependencies = ["torch==2.13.0"] }]
+environments = ["sys_platform == 'darwin' and platform_machine == 'arm64'"]
+
+[tool.uv.sources]
+vllm = { git = "https://github.com/RhizoNymph/vllm", branch = "feat/integration" }
+vllm-metal = { url = "https://github.com/vllm-project/vllm-metal/releases/download/v0.32.0.dev20261027230727/vllm_metal-0.32.0.dev20261027230727-cp312-cp312-macosx_15_0_arm64.whl" }
+
+[project.entry-points."vllm.general_plugins"]
+neuron_mps = "neuron_compat.plugin:register"

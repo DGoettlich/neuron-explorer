@@ -14,6 +14,7 @@ Writes stats/q35-4b_L22.npz with
     w_down           down_proj columns, one row per neuron                                [I, H] float16
     resid_norm_q10_50_90   quantiles of the per-token residual norm leaving the layer (scale for push sizes)
 """
+from neuron_compat import MODEL, device, load_model, language_model
 import argparse
 import itertools
 import os
@@ -70,25 +71,26 @@ class RegimeStats:
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--model", default="Qwen/Qwen3.5-4B")
+    ap.add_argument("--model", default=MODEL)
     ap.add_argument("--layers", default="22", help="comma-separated decoder layer indices")
     ap.add_argument("--tokens", type=int, default=2_000_000)
     ap.add_argument("--seq-len", type=int, default=1024)
     ap.add_argument("--batch", type=int, default=16)
-    ap.add_argument("--seed", type=int, default=0)
-    ap.add_argument("--out", default="stats/q35-4b")
+    ap.add_argument("--out", default=None)
     a = ap.parse_args()
+    a.seed = 0
+    a.out = a.out or f"stats/{a.model.split('/')[-1]}"
     layers = [int(x) for x in a.layers.split(",")]
 
     tok = AutoTokenizer.from_pretrained(a.model)
-    model = AutoModelForImageTextToText.from_pretrained(a.model, dtype=torch.bfloat16, device_map="cuda").eval()
-    lm = model.model.language_model
+    model = load_model(a.model)[0]
+    lm = language_model(model)
     lm.layers = lm.layers[: max(layers) + 1]  # nothing past the deepest target layer is needed
 
     stats = {}
     for l in layers:
         mlp = lm.layers[l].mlp
-        s = stats[l] = RegimeStats(mlp.down_proj.in_features, "cuda")
+        s = stats[l] = RegimeStats(mlp.down_proj.in_features, device())
         mlp.gate_proj.register_forward_hook(lambda m, i, o, s=s: setattr(s, "gate", o))
         mlp.up_proj.register_forward_hook(lambda m, i, o, s=s: setattr(s, "up", o))
         mlp.down_proj.register_forward_pre_hook(lambda m, i, s=s: s.update(i[0]))
@@ -98,7 +100,7 @@ def main():
     t0 = time.time()
     with torch.inference_mode():
         for step, ids in enumerate(itertools.islice(windows(tok, a.seq_len, a.batch, a.seed), n_steps)):
-            lm(input_ids=ids.cuda(), use_cache=False)
+            lm(input_ids=ids.to(device()), use_cache=False)
             if step % 10 == 0 or step == n_steps - 1:
                 done = (step + 1) * a.seq_len * a.batch
                 print(f"{step + 1}/{n_steps} steps, {done:,} tokens, {done / (time.time() - t0):,.0f} tok/s", flush=True)

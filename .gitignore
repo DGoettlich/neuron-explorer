@@ -26,4 +26,8 @@ sweep/pod_template.json
 explorer/cache/head_profiles.json
 
 # experiment scripts
-scripts/
+scripts/*
+!scripts/setup_mps.sh
+!scripts/smoke_mps.py
+
+*.egg-info/

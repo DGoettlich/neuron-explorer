@@ -7,6 +7,7 @@ rows of 96, then by x within each row.
 
 Writes explorer/cache/layout_<kind>.npz: cell[L, N] (int16, row * 96 + col for neuron n of layer L).
 """
+from neuron_compat import MODEL, checkpoint
 import argparse
 import json
 import os
@@ -17,18 +18,16 @@ from huggingface_hub import snapshot_download
 from safetensors import safe_open
 
 ap = argparse.ArgumentParser()
-ap.add_argument("--model", default="Qwen/Qwen3.5-4B")
+ap.add_argument("--model", default=MODEL)
 ap.add_argument("--kind", default="writes", choices=["writes", "reads"])
 ap.add_argument("--pca", type=int, default=50)
 ap.add_argument("--neighbors", type=int, default=30)
 a = ap.parse_args()
 
 root = snapshot_download(a.model, allow_patterns=["*.safetensors", "*.json"])
-index = json.load(open(os.path.join(root, "model.safetensors.index.json")))["weight_map"]
-cfg = json.load(open(os.path.join(root, "config.json")))["text_config"]
+cfg, index, prefix = checkpoint(root)
 L, N = cfg["num_hidden_layers"], cfg["intermediate_size"]
-side = int(round(N ** 0.5))
-assert side * side == N
+side = int(np.ceil(N ** 0.5))
 
 
 def tensor(name):
@@ -38,7 +37,7 @@ def tensor(name):
 
 cells = np.zeros((L, N), np.int16)
 for l in range(L):
-    pre = f"model.language_model.layers.{l}.mlp."
+    pre = f"{prefix}.{l}.mlp."
     if a.kind == "writes":
         X = tensor(pre + "down_proj.weight").T  # [N, hidden]
     else:
@@ -52,9 +51,10 @@ for l in range(L):
     for r in range(side):
         band = by_y[r * side:(r + 1) * side]
         band = band[np.argsort(xy[band, 0], kind="stable")]
-        cells[l, band] = r * side + np.arange(side)
+        cells[l, band] = r * side + np.arange(len(band))
     print(f"L{l} done", flush=True)
 
-out = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cache", f"layout_{a.kind}.npz")
+out = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cache", a.model.replace("/", "--"), f"layout_{a.kind}.npz")
+os.makedirs(os.path.dirname(out), exist_ok=True)
 np.savez(out, cell=cells)
 print("->", out)

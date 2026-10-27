@@ -13,10 +13,10 @@ import threading
 import numpy as np
 import torch
 import torch.nn.functional as F
-from transformers import AutoTokenizer, Qwen3_5ForConditionalGeneration
+from transformers import AutoTokenizer
+from neuron_compat import MODEL, load_model, norm_weight
 from transformers.models.qwen3_5.modeling_qwen3_5 import apply_rotary_pos_emb, l2norm
 
-MODEL = os.environ.get("EXPLORER_MODEL", "Qwen/Qwen3.5-4B")
 NO_MODEL = bool(os.environ.get("EXPLORER_NO_MODEL"))  # cache-only: never download or load weights
 REFERENCE_TEXT = (
     "The history of the region is long and varied. Farmers settled the river valley first, then traders arrived, "
@@ -26,7 +26,7 @@ REFERENCE_TEXT = (
 )
 
 
-CACHE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cache")
+CACHE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cache", MODEL.replace("/", "--"))
 
 
 def _locked(f):
@@ -76,8 +76,8 @@ class Runtime:
             self.status = "loading"
             dev = "mps" if torch.backends.mps.is_available() else ("cuda" if torch.cuda.is_available() else "cpu")
             self.tok = AutoTokenizer.from_pretrained(MODEL)
-            m = Qwen3_5ForConditionalGeneration.from_pretrained(MODEL, dtype=torch.bfloat16).to(dev).eval()
-            self.dev, self.model, self.lm = dev, m, m.model.language_model
+            m, lm = load_model(MODEL)
+            self.dev, self.model, self.lm = dev, m, lm
             for i, layer in enumerate(self.lm.layers):
                 layer.mlp.down_proj.register_forward_pre_hook(self._hook(i))
                 layer.register_forward_hook(self._resid_hook(i))
@@ -172,13 +172,17 @@ class Runtime:
                 if hasattr(mod, "q_norm"):
                     cos, sin = kwargs["position_embeddings"]
                     hd = mod.head_dim
-                    q, gate = torch.chunk(mod.q_proj(x).view(1, T, -1, hd * 2), 2, dim=-1)
+                    if self.model.config.model_type == "qwen3":
+                        q = mod.q_proj(x).view(1, T, -1, hd)
+                        gate = None
+                    else:
+                        q, gate = torch.chunk(mod.q_proj(x).view(1, T, -1, hd * 2), 2, dim=-1)
                     q = mod.q_norm(q).transpose(1, 2)
                     k = mod.k_norm(mod.k_proj(x).view(1, T, -1, hd)).transpose(1, 2)
                     q, k = apply_rotary_pos_emb(q, k, cos, sin)
                     v = mod.v_proj(x).view(T, -1, hd).transpose(0, 1)
                     self._capture_heads["q"][i] = {"kind": "full", "q": q[0].half(), "k": k[0].half(), "scale": mod.scaling,
-                                                   "v": v.half(), "s": gate[0].float().sigmoid().transpose(0, 1).half()}
+                                                   "v": v.half(), "s": (torch.ones_like(q[0]) if gate is None else gate[0].float().sigmoid().transpose(0, 1)).half()}
                 else:
                     qkv = mod.in_proj_qkv(x).transpose(1, 2)
                     w = mod.conv1d.weight
@@ -286,7 +290,7 @@ class Runtime:
             wg, wu = me.mlp.gate_proj.weight[n].float(), me.mlp.up_proj.weight[n].float()
             g, u = wg @ x, wu @ x
             sg = torch.sigmoid(g)
-            J = ((sg * (1 + g * (1 - sg))) * u * wg + g * sg * wu) * (1 + me.post_attention_layernorm.weight.float()) / rms
+            J = ((sg * (1 + g * (1 - sg))) * u * wg + g * sg * wu) * (norm_weight(me.post_attention_layernorm)) / rms
             out, T = [], {}
             for l in range(layer + 1):
                 lay = self.lm.layers[l]
@@ -353,14 +357,14 @@ class Runtime:
         self.ensure_loaded()
         with self.lock, torch.inference_mode():
             lay = self.lm.layers[layer]
-            g = (1.0 + lay.input_layernorm.weight.float())
+            g = (norm_weight(lay.input_layernorm))
             if hasattr(lay, "self_attn"):
                 a = lay.self_attn; hd = a.head_dim
                 nq, nkv = a.o_proj.in_features // hd, a.k_proj.out_features // hd
                 kv = head // (nq // nkv)
                 WV = a.v_proj.weight[kv * hd:(kv + 1) * hd].float() * g
                 WO = a.o_proj.weight[:, head * hd:(head + 1) * hd].float()
-                WQ = a.q_proj.weight.view(nq, 2 * hd, -1)[head, :hd].float() * g
+                WQ = a.q_proj.weight.view(nq, hd if self.model.config.model_type == "qwen3" else 2 * hd, -1)[head, :hd].float() * g
                 WK = a.k_proj.weight[kv * hd:(kv + 1) * hd].float() * g
             else:
                 a = lay.linear_attn; hd = a.head_v_dim
@@ -389,7 +393,7 @@ class Runtime:
                 rk.append(((QK.T @ D).norm(dim=0) / dn).cpu())
             for l in range(layer, len(self.lm.layers)):
                 L2 = self.lm.layers[l]
-                w = 1.0 + L2.post_attention_layernorm.weight.float()
+                w = norm_weight(L2.post_attention_layernorm)
                 G, U = L2.mlp.gate_proj.weight.float() * w, L2.mlp.up_proj.weight.float() * w
                 share = lambda R: (R @ QO).norm(dim=1) / R.norm(dim=1).clamp(min=1e-8)
                 wr.append((share(G) * share(U)).cpu())
@@ -416,7 +420,7 @@ class Runtime:
         qv, qo, spans, at = [], [], [], 0
         with self.lock, torch.inference_mode():
             for l, lay in enumerate(self.lm.layers):
-                g = 1.0 + lay.input_layernorm.weight.float()
+                g = norm_weight(lay.input_layernorm)
                 if hasattr(lay, "self_attn"):
                     a = lay.self_attn; hd = a.head_dim
                     nq, nkv = a.o_proj.in_features // hd, a.k_proj.out_features // hd
@@ -443,7 +447,7 @@ class Runtime:
         with self.lock, torch.inference_mode():
             me = self.lm.layers[layer]
             d = me.mlp.down_proj.weight[:, n].float()
-            w = 1.0 + me.post_attention_layernorm.weight.float()
+            w = norm_weight(me.post_attention_layernorm)
             gr, ur = me.mlp.gate_proj.weight[n].float() * w, me.mlp.up_proj.weight[n].float() * w
             pr = (QV.T @ d).cpu()  # projections of the down column on every head's read basis
             pg, pu = (QO.T @ gr).cpu(), (QO.T @ ur).cpu()
@@ -478,12 +482,12 @@ class Runtime:
             for role in ("q", "k"):
                 cols, spans, at = [], [], 0
                 for l, lay in enumerate(self.lm.layers):
-                    g = 1.0 + lay.input_layernorm.weight.float()
+                    g = norm_weight(lay.input_layernorm)
                     if hasattr(lay, "self_attn"):
                         a = lay.self_attn; hd = a.head_dim
                         nq, nkv = a.o_proj.in_features // hd, a.k_proj.out_features // hd
                         if role == "q":
-                            Wq = a.q_proj.weight.view(nq, 2 * hd, -1)[:, :hd]
+                            Wq = a.q_proj.weight.view(nq, hd if self.model.config.model_type == "qwen3" else 2 * hd, -1)[:, :hd]
                             units = [(Wq[h], [h]) for h in range(nq)]
                         else:
                             rep = nq // nkv
@@ -550,7 +554,7 @@ class Runtime:
     def layer_resid_p50(self, layer):
         if layer in self.resid_p50:
             return self.resid_p50[layer]
-        path = os.path.join(self.stats_dir, f"q35-4b_L{layer}.npz")
+        path = os.path.join(self.stats_dir, f"{MODEL.split('/')[-1]}_L{layer}.npz")
         if os.path.exists(path):
             v = float(np.load(path)["resid_norm_q10_50_90"][1])
         else:
@@ -811,14 +815,14 @@ class Runtime:
             out = {"down": [], "up": []}
             d = self.lm.layers[layer].mlp.down_proj.weight[:, n]
             me = self.lm.layers[layer]
-            scale_me = (1.0 + me.post_attention_layernorm.weight.float()).to(dt)
+            scale_me = (norm_weight(me.post_attention_layernorm)).to(dt)
             r_g = me.mlp.gate_proj.weight[n] * scale_me
             r_u = me.mlp.up_proj.weight[n] * scale_me
             for j, Lyr in enumerate(self.lm.layers):
                 if j == layer:
                     continue
                 if j > layer:
-                    v = d * (1.0 + Lyr.post_attention_layernorm.weight.float()).to(dt)
+                    v = d * (norm_weight(Lyr.post_attention_layernorm)).to(dt)
                     g, u = (Lyr.mlp.gate_proj.weight @ v).float(), (Lyr.mlp.up_proj.weight @ v).float()
                     side = "down"
                 else:
