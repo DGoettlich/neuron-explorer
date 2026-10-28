@@ -27,3 +27,9 @@ bash -n scripts/sweep.sh scripts/setup_cuda.sh
 python -m unittest discover -s tests -v
 ruff check sweep/lending_sweep.py tests/test_sweep_jobs.py
 ```
+
+## Verified small run
+
+On 2026-10-28, Slurm job `3785000` completed successfully in 3 minutes 9 seconds on the debug partition with four GPUs. Qwen3.5-4B generated all 18 responses across DP ranks (6/4/4/4 requests), with 769 output tokens and matching per-token log-probability records. All responses ended with `stop`; none reached the 256-token cap. Generation took approximately four seconds after initialization, including a brief model-kernel JIT latency spike. This small batch does not establish full-sweep throughput.
+
+Artifacts are in `/iopsstor/scratch/cscs/dgoettll/abs01/neuron-explorer/runs/3785000`. Both baselines and all interventions approved the loan. Interventions changed response content; three responses omitted the requested explanation. This verifies execution and output collection, not identification of a discrimination neuron.
