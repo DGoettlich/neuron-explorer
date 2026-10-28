@@ -13,7 +13,12 @@ if [[ ! -f "$VIRTUAL_ENV/.ready" ]]; then
     fi
     git -C "$source_dir" checkout --quiet "$VLLM_STEERING_REVISION"
     export VLLM_USE_PRECOMPILED=1
-    export VLLM_PRECOMPILED_WHEEL_LOCATION="$VLLM_PRECOMPILED_WHEEL_URL"
+    export VLLM_PRECOMPILED_WHEEL_LOCATION="$PROJECT_SCRATCH/wheels/vllm-upstream.whl"
+    if [[ ! -f "$VLLM_PRECOMPILED_WHEEL_LOCATION" ]]; then
+        mkdir -p "$PROJECT_SCRATCH/wheels"
+        curl -fLsS "$VLLM_PRECOMPILED_WHEEL_URL" -o "$VLLM_PRECOMPILED_WHEEL_LOCATION.part"
+        mv "$VLLM_PRECOMPILED_WHEEL_LOCATION.part" "$VLLM_PRECOMPILED_WHEEL_LOCATION"
+    fi
     /usr/local/bin/uv pip install --python "$VIRTUAL_ENV/bin/python" \
         'setuptools>=77,<81' setuptools-scm setuptools-rust wheel cmake ninja jinja2
     /usr/local/bin/uv pip install --python "$VIRTUAL_ENV/bin/python" \

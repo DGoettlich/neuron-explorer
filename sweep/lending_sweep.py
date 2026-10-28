@@ -49,6 +49,11 @@ def prepare(args):
     import torch
     from transformers import AutoTokenizer, Qwen3_5ForConditionalGeneration
 
+    assert torch.cuda.device_count() == 4, "Expected four allocated CUDA GPUs"
+    print(
+        f"CUDA: {torch.cuda.device_count()} GPUs, {torch.cuda.get_device_name(0)}",
+        flush=True,
+    )
     config = json.loads(args.prompts.read_text())
     tokenizer = AutoTokenizer.from_pretrained(args.model)
     messages = [
