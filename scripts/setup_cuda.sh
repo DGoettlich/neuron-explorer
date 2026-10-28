@@ -3,6 +3,7 @@
 set -euo pipefail
 source containers/cuda.env
 export VIRTUAL_ENV="$PROJECT_SCRATCH/venvs/cuda-steering"
+export PATH="$VIRTUAL_ENV/bin:$PATH"
 source_dir="$PROJECT_SCRATCH/source/vllm-steering"
 if [[ ! -f "$VIRTUAL_ENV/.ready" ]]; then
     mkdir -p "$(dirname "$VIRTUAL_ENV")" "$(dirname "$source_dir")"
@@ -25,3 +26,4 @@ if [[ ! -f "$VIRTUAL_ENV/.ready" ]]; then
         --no-build-isolation "$source_dir" datasets accelerate safetensors numpy fla-core einops
     touch "$VIRTUAL_ENV/.ready"
 fi
+unset VLLM_USE_PRECOMPILED VLLM_PRECOMPILED_WHEEL_LOCATION
