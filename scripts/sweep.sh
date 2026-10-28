@@ -2,9 +2,9 @@
 # SocialJev-style Slurm submission; all runtime writes go to scratch.
 set -euo pipefail
 ulimit -c 0
-cd "$(dirname "${BASH_SOURCE[0]}")/.."
 export PROJECT_SCRATCH=/iopsstor/scratch/cscs/dgoettll/abs01/neuron-explorer
 if [[ ${1:-} != --worker ]]; then
+    cd "$(dirname "${BASH_SOURCE[0]}")/.."
     minutes=10
     args=()
     while (( $# )); do
