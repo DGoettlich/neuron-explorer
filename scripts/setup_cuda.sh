@@ -27,13 +27,3 @@ if [[ ! -f "$VIRTUAL_ENV/.ready" ]]; then
     touch "$VIRTUAL_ENV/.ready"
 fi
 unset VLLM_USE_PRECOMPILED VLLM_PRECOMPILED_WHEEL_LOCATION
-
-# The runtime container lacks nvcc; FlashInfer compiles kernels at startup.
-export CUDA_HOME="$PROJECT_SCRATCH/cuda-toolkit/nvidia/cu13"
-if [[ ! -x "$CUDA_HOME/bin/nvcc" ]]; then
-    /usr/local/bin/uv pip install --python "$VIRTUAL_ENV/bin/python" \
-        --target "$PROJECT_SCRATCH/cuda-toolkit" \
-        'cuda-toolkit[nvcc,crt,nvvm,cudart,cccl]==13.0.2'
-fi
-export PATH="$CUDA_HOME/bin:$PATH"
-"$CUDA_HOME/bin/nvcc" --version
