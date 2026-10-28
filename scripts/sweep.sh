@@ -42,7 +42,7 @@ export VLLM_NO_USAGE_STATS=1 DO_NOT_TRACK=1 PYTHONNOUSERSITE=1
 mkdir -p "$TMPDIR" "$XDG_RUNTIME_DIR" "$ENROOT_DATA_PATH" "$ENROOT_CACHE_PATH" "$RUN_DIR"
 chmod 700 "$XDG_RUNTIME_DIR"
 unset VLLM_METAL_BACKEND PYTORCH_MPS_HIGH_WATERMARK_RATIO PYTORCH_MPS_LOW_WATERMARK_RATIO
-srun --ntasks=1 --gpus-per-task=4 --cpu-bind=none --network=disable_rdzv_get \
+srun --ntasks=1 --gpus-per-task=4 --cpus-per-task=32 --cpu-bind=none --network=disable_rdzv_get \
     --environment="$PWD/containers/clariden.toml" --container-workdir="$PWD" \
     bash -c '
         set -euo pipefail
