@@ -104,11 +104,14 @@ def prepare(args):
         )
         calibration = "explorer reference-text fallback"
     assert 0 < args.neurons <= len(w_down)
-    neurons = sorted(
-        np.random.default_rng(0)
-        .choice(len(w_down), args.neurons, replace=False)
-        .tolist()
-    )
+    if args.neurons == len(w_down):
+        neurons = list(range(len(w_down)))
+    else:
+        neurons = sorted(
+            np.random.default_rng(0)
+            .choice(len(w_down), args.neurons, replace=False)
+            .tolist()
+        )
     np.savez(
         args.output / "directions.npz",
         neurons=neurons,
