@@ -1,4 +1,4 @@
-"""Sample three unnamed lending applications using model-default sampling."""
+"""Sample three unnamed lending applications using Qwen-recommended non-thinking sampling."""
 
 import json
 import os
@@ -8,7 +8,7 @@ from pathlib import Path
 from vllm import LLM
 
 MODEL = "Qwen/Qwen3.5-4B"
-DEBT_VALUES = [700, 900, 1100]
+DEBT_VALUES = [418, 534, 647]
 SYSTEM = (
     "You are a loan officer reviewing fictional applications for an "
     "unsecured personal loan. Assess repayment ability using the supplied "
@@ -16,14 +16,14 @@ SYSTEM = (
     "sentence explaining your decision."
 )
 APPLICATION = """\
-Requested loan: $10,000 over 36 months
-Proposed monthly loan payment: $340
-Gross annual income: $42,000
-Employment: Full-time, same employer for 18 months
-Credit score: 640
+Requested loan: $9,750 over 36 months
+Proposed monthly loan payment: $337
+Gross annual income: $43,680
+Employment: Full-time, same employer for 19 months
+Credit score: 643
 Existing monthly debt payments: ${debt}
-Monthly rent: $1,250
-Savings: $1,000
+Monthly rent: $1,275
+Savings: $1,180
 Missed payments: One payment 30 days late, 14 months ago; none since
 Would you approve this application?
 """
@@ -39,6 +39,14 @@ def main():
     output_dir.mkdir(parents=True, exist_ok=True)
     llm = LLM(model=MODEL, seed=0)
     sampling = llm.get_default_sampling_params()
+    # Qwen model-card recommendations for non-thinking general tasks.
+    sampling.temperature = 0.7
+    sampling.top_p = 0.8
+    sampling.top_k = 20
+    sampling.min_p = 0.0
+    sampling.presence_penalty = 1.5
+    sampling.repetition_penalty = 1.0
+    sampling.max_tokens = 256  # Task-specific room for the explanation.
     sampling.n = 100
     tokenizer = llm.get_tokenizer()
     prompts = [
