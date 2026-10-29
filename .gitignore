@@ -27,3 +27,11 @@ explorer/cache/head_profiles.json
 
 # experiment scripts
 scripts/
+
+# Tracked cluster launchers; generated data stays on scratch.
+!scripts/
+scripts/*
+!scripts/sweep.sh
+!scripts/setup_cuda.sh
+
+!scripts/calibrate_lending.sh
