@@ -33,3 +33,5 @@ scripts/
 scripts/*
 !scripts/sweep.sh
 !scripts/setup_cuda.sh
+
+!scripts/calibrate_lending.sh
